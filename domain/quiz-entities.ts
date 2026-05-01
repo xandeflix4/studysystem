@@ -7,6 +7,11 @@ export interface QuizAttemptResult {
     passed: boolean;
     earnedPoints: number;
     totalPoints: number;
+    wrongAnswers?: Array<{
+        question: string;
+        userAnswer: string;
+        correctAnswer: string;
+    }>;
 }
 
 export type QuestionType = 'multiple_choice' | 'true_false';
@@ -118,24 +123,35 @@ export class Quiz {
         return this.questions.reduce((sum, q) => sum + q.points, 0);
     }
 
-    /**
-     * Valida uma tentativa do usuário e retorna o resultado
-     */
     public validateAttempt(userAnswers: Record<string, string>): QuizAttemptResult {
         let earnedPoints = 0;
         const totalPoints = this.getTotalPoints();
+        const wrongAnswers: Array<{question: string, userAnswer: string, correctAnswer: string}> = [];
 
         this.questions.forEach(question => {
-            const userAnswer = userAnswers[question.id];
-            if (userAnswer && question.isCorrectAnswer(userAnswer)) {
+            const userAnswerId = userAnswers[question.id];
+            if (userAnswerId && question.isCorrectAnswer(userAnswerId)) {
                 earnedPoints += question.points;
+            } else {
+                // Populate wrong answers for predictive analysis
+                const userAnswerOption = question.options.find(o => o.id === userAnswerId);
+                const correctOptions = question.getCorrectOptions();
+                const correctText = correctOptions.length > 0 
+                    ? correctOptions.map(o => o.optionText).join(' ou ') 
+                    : 'Nenhuma resposta configurada como correta';
+                
+                wrongAnswers.push({
+                    question: question.questionText,
+                    userAnswer: userAnswerOption ? userAnswerOption.optionText : 'Nenhuma resposta enviada',
+                    correctAnswer: correctText
+                });
             }
         });
 
         const score = totalPoints > 0 ? (earnedPoints / totalPoints) * 100 : 0;
         const passed = score >= this.passingScore;
 
-        return { score, passed, earnedPoints, totalPoints };
+        return { score, passed, earnedPoints, totalPoints, wrongAnswers };
     }
 
     /**

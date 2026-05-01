@@ -4,16 +4,17 @@
 Foco em organizar a fundação para suportar novas funcionalidades sem aumentar a complexidade técnica.
 
 ### Phase 1: Arquitetura e Roteamento
-- [ ] Decompor `App.tsx` em Layouts e Sub-rotas.
-- [ ] Centralizar lógica de autenticação e proteção de rotas.
+- [x] Decompor `App.tsx` em Layouts e Sub-rotas.
+- [x] Centralizar lógica de autenticação e proteção de rotas.
 
-### Phase 2: Refatoração de Repositórios
-- [ ] Fragmentar `SupabaseCourseRepository.ts` em repositórios menores (ex: `CourseRepository`, `ModuleRepository`, `LessonRepository`).
-- [ ] Refatorar `SupabaseAdminRepository.ts`.
+### Phase 2: Refatoração de Repositórios (CONCLUÍDA)
+- [x] Fragmentar repositórios em unidades de domínio.
+- [x] Implementar injeção de dependências via `Dependencies.ts`.
 
-### Phase 3: Otimização de Performance
-- [ ] Implementar Code-splitting para bibliotecas pesadas.
-- [ ] Otimizar consultas do TanStack Query.
+### Phase 3: Otimização de Performance (CONCLUÍDA)
+- [x] Implementar Code-splitting (Recharts, Editor).
+- [x] Otimizar consultas do TanStack Query e Prefetching.
+- [x] Otimização de Assets (Supabase Image Transformation).
 
 ## Milestone 2: Expansão de Funcionalidades
 ### Phase 4: Gamificação Avançada

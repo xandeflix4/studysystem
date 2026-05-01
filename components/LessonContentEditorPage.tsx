@@ -1,4 +1,4 @@
-import { courseRepository, adminRepository, supabaseClient as supabase } from '../services/Dependencies';
+import { courseRepository, adminCourseRepository, adminUserRepository, systemRepository, supabaseClient as supabase, userProgressRepository, quizRepository, aiService } from '../services/Dependencies';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { LessonRecord, LessonResourceRecord } from '../domain/admin';
 import ResourceUploadForm from './ResourceUploadForm';
@@ -1005,7 +1005,7 @@ const LessonContentEditorPage: React.FC<LessonContentEditorPageProps> = ({
         if (!lesson.id) return;
         setIsLoadingResources(true);
         try {
-            const resources = await adminRepository.listLessonResources(lesson.id);
+            const resources = await adminCourseRepository.listLessonResources(lesson.id);
             setLessonResources(resources);
         } catch (error) {
             console.error('Erro ao buscar materiais:', error);
@@ -1067,7 +1067,7 @@ const LessonContentEditorPage: React.FC<LessonContentEditorPageProps> = ({
             setModuleId(lesson.module_id);
             const fetchHierarchy = async () => {
                 try {
-                    const mod = await adminRepository.getModule(lesson.module_id);
+                    const mod = await adminCourseRepository.getModule(lesson.module_id);
                     setCourseId(mod.course_id);
                 } catch (error) {
                     console.error('Error fetching hierarchy:', error);
@@ -1087,9 +1087,7 @@ const LessonContentEditorPage: React.FC<LessonContentEditorPageProps> = ({
 
             try {
 
-                const courseRepo = courseRepository;
-
-                const quiz = await courseRepo.getQuizByLessonId(lesson.id);
+                const quiz = await quizRepository.getQuizByLessonId(lesson.id);
 
                 if (quiz) {
                     setExistingQuiz(quiz);
@@ -1112,8 +1110,7 @@ const LessonContentEditorPage: React.FC<LessonContentEditorPageProps> = ({
             setLoadingRequirements(true);
             try {
 
-                const courseRepo = courseRepository;
-                const reqs = await courseRepo.getLessonRequirements(lesson.id);
+                const reqs = await userProgressRepository.getLessonRequirements(lesson.id);
                 setLessonRequirements(reqs);
                 console.log('✅ Requisitos carregados:', reqs);
             } catch (error) {
@@ -1357,10 +1354,69 @@ const LessonContentEditorPage: React.FC<LessonContentEditorPageProps> = ({
         return () => window.removeEventListener('previewAsStudent', handlePreview);
     }, [lesson.id]);
 
+    const [isSyncingRAG, setIsSyncingRAG] = useState(false);
+    const [isGeneratingQuizAI, setIsGeneratingQuizAI] = useState(false);
+
+    const handleSyncRAG = async () => {
+        if (!lesson.id) return;
+        setIsSyncingRAG(true);
+        try {
+            toast.info('⏳ Iniciando sincronização RAG (Embeddings)...');
+            await aiService.syncLessonEmbeddings(lesson.id);
+            toast.success('✅ Embeddings RAG sincronizados com sucesso! A aula agora pode ser consultada pela IA.');
+        } catch (error) {
+            console.error('Erro ao sincronizar RAG:', error);
+            toast.error('❌ Falha ao sincronizar embeddings: ' + (error as Error).message);
+        } finally {
+            setIsSyncingRAG(false);
+        }
+    };
+
+    const handleGenerateQuizAI = async () => {
+        if (!lesson.id) return;
+        setIsGeneratingQuizAI(true);
+        try {
+            toast.info('🤖 IA analisando a aula para gerar o Quiz...');
+            const aiQuizData = await aiService.generateQuizFromLesson(lesson.id);
+            
+            // Verifica se o quiz retornado tem o formato esperado
+            if (aiQuizData && aiQuizData.title && aiQuizData.questions) {
+                // Simula o formato que o handleCreateQuiz espera
+                const quizDataToSave = {
+                    title: aiQuizData.title,
+                    description: aiQuizData.description || 'Quiz gerado automaticamente por Inteligência Artificial baseado no conteúdo da aula.',
+                    passingScore: 70, // Padrão 70%
+                    questionsCount: aiQuizData.questions.length,
+                    poolDifficulty: 'MIXED',
+                    questions: aiQuizData.questions.map((q: any) => ({
+                        questionText: q.questionText,
+                        questionType: 'MULTIPLE_CHOICE',
+                        points: 10,
+                        options: q.options.map((opt: any) => ({
+                            optionText: opt.optionText,
+                            isCorrect: opt.isCorrect
+                        }))
+                    }))
+                };
+
+                await handleCreateQuiz(quizDataToSave);
+                toast.success('🎉 Quiz gerado por IA com sucesso!');
+            } else {
+                throw new Error('Formato de quiz inválido retornado pela IA.');
+            }
+
+        } catch (error) {
+            console.error('Erro ao gerar quiz com IA:', error);
+            toast.error('❌ Falha ao gerar quiz com IA: ' + (error as Error).message);
+        } finally {
+            setIsGeneratingQuizAI(false);
+        }
+    };
+
     const handleCreateQuiz = async (quizData: any) => {
         try {
 
-            const courseRepo = courseRepository;
+
 
             const quiz = new Quiz(
                 existingQuiz?.id || (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2)),
@@ -1394,11 +1450,11 @@ const LessonContentEditorPage: React.FC<LessonContentEditorPageProps> = ({
 
             // UPDATE se já existe, CREATE se novo
             if (existingQuiz) {
-                const savedQuiz = await courseRepo.updateQuiz(quiz);
+                const savedQuiz = await quizRepository.updateQuiz(quiz);
                 setExistingQuiz(savedQuiz);
                 toast.success('✅ Quiz atualizado com sucesso!');
             } else {
-                const savedQuiz = await courseRepo.createQuiz(quiz);
+                const savedQuiz = await quizRepository.createQuiz(quiz);
                 setExistingQuiz(savedQuiz);
                 toast.success('✅ Quiz criado com sucesso!');
             }
@@ -1417,13 +1473,11 @@ const LessonContentEditorPage: React.FC<LessonContentEditorPageProps> = ({
         setIsTogglingRelease(true);
         try {
 
-            const courseRepo = courseRepository;
-
             const newReleaseState = !existingQuiz.isManuallyReleased;
-            await courseRepo.toggleQuizRelease(existingQuiz.id, newReleaseState);
+            await quizRepository.toggleQuizRelease(existingQuiz.id, newReleaseState);
 
             // Recarregar quiz para atualizar estado
-            const updatedQuiz = await courseRepo.getQuizByLessonId(lesson.id);
+            const updatedQuiz = await quizRepository.getQuizByLessonId(lesson.id);
             setExistingQuiz(updatedQuiz);
 
             alert(newReleaseState
@@ -1467,9 +1521,7 @@ const LessonContentEditorPage: React.FC<LessonContentEditorPageProps> = ({
     const handleSaveRequirements = async (requirements: import('../domain/lesson-requirements').LessonProgressRequirements) => {
         try {
 
-            const courseRepo = courseRepository;
-
-            await courseRepo.saveLessonRequirements(requirements);
+            await userProgressRepository.saveLessonRequirements(requirements);
             setLessonRequirements(requirements);
 
             toast.success('✅ Requisitos salvos com sucesso!');
@@ -3406,7 +3458,7 @@ const LessonContentEditorPage: React.FC<LessonContentEditorPageProps> = ({
                 finalUrl = convertDropboxUrl(finalUrl);
             }
 
-            await adminRepository.createLessonResource(lesson.id, {
+            await adminCourseRepository.createLessonResource(lesson.id, {
                 title: data.title,
                 resourceType: data.resourceType,
                 url: finalUrl,
@@ -3425,7 +3477,7 @@ const LessonContentEditorPage: React.FC<LessonContentEditorPageProps> = ({
     const handleDeleteResource = async (resourceId: string) => {
         if (!confirm('Tem certeza que deseja remover este material?')) return;
         try {
-            await adminRepository.deleteLessonResource(resourceId);
+            await adminCourseRepository.deleteLessonResource(resourceId);
             await fetchLessonResources();
         } catch (error) {
             console.error('Erro ao excluir material:', error);
@@ -3506,10 +3558,28 @@ const LessonContentEditorPage: React.FC<LessonContentEditorPageProps> = ({
                                 IMPORTAR/EXPORTAR
                             </button>
 
+                            <Divider />
 
-
+                            {/* Botões de IA Avançada */}
+                            <button
+                                onClick={handleSyncRAG}
+                                disabled={isSyncingRAG || !isOnline}
+                                className="h-9 px-3 rounded-lg font-semibold transition-all active:scale-95 flex items-center gap-1.5 text-[10px] uppercase bg-indigo-600 text-white border border-transparent hover:bg-indigo-700 dark:bg-transparent dark:border-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-500/20 dark:hover:border-indigo-400 disabled:opacity-50"
+                                title="Sincronizar conteúdo da aula no Banco Vetorial para busca semântica da IA"
+                            >
+                                {isSyncingRAG ? <i className="fas fa-spinner fa-spin text-[10px]"></i> : <i className="fas fa-brain text-[10px]"></i>}
+                                SINC RAG
+                            </button>
 
                             <button
+                                onClick={handleGenerateQuizAI}
+                                disabled={isGeneratingQuizAI || !isOnline}
+                                className="h-9 px-3 rounded-lg font-semibold transition-all active:scale-95 flex items-center gap-1.5 text-[10px] uppercase bg-purple-600 text-white border border-transparent hover:bg-purple-700 dark:bg-transparent dark:border-purple-500 dark:text-purple-400 dark:hover:bg-purple-500/20 dark:hover:border-purple-400 disabled:opacity-50"
+                                title="Gerar automaticamente um Quiz baseado no conteúdo desta aula usando IA"
+                            >
+                                {isGeneratingQuizAI ? <i className="fas fa-spinner fa-spin text-[10px]"></i> : <i className="fas fa-wand-magic-sparkles text-[10px]"></i>}
+                                GERAR QUIZ (IA)
+                            </button>                            <button
                                 onClick={() => setShowMaterialModal(true)}
                                 className="h-9 px-3 rounded-lg font-semibold transition-all active:scale-95 flex items-center gap-1.5 text-[10px] uppercase bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200 dark:bg-transparent dark:border-slate-400 dark:text-slate-300 dark:hover:bg-slate-400/20 dark:hover:border-slate-300"
                                 title="Adicionar material complementar"
@@ -5866,8 +5936,8 @@ const LessonContentEditorPage: React.FC<LessonContentEditorPageProps> = ({
                                                 setLoadingRequirements(true);
                                                 setShowQuizManagementModal(false);
                                                 try {
-                                                    // Reuse repository method (already optimized) to avoid duplicate wide query.
-                                                    const reqs = lessonRequirements || await courseRepository.getLessonRequirements(lesson.id);
+                                                    // Use userProgressRepository for requirements
+                                                    const reqs = lessonRequirements || await userProgressRepository.getLessonRequirements(lesson.id);
                                                     setLessonRequirements(reqs);
                                                     setShowRequirementsEditor(true);
                                                 } catch (error) {

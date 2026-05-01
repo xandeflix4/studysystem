@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { QuizAttemptResult } from '../domain/quiz-entities';
+import { aiService } from '../services/Dependencies';
 
 interface QuizResultsModalProps {
     result: QuizAttemptResult;
@@ -8,6 +9,7 @@ interface QuizResultsModalProps {
     onClose: () => void;
     onRetry?: () => void;
     quizMode?: 'practice' | 'evaluation' | null;
+    lessonTitle?: string;
 }
 
 const QuizResultsModal: React.FC<QuizResultsModalProps> = ({
@@ -16,11 +18,14 @@ const QuizResultsModal: React.FC<QuizResultsModalProps> = ({
     isOpen,
     onClose,
     onRetry,
-    quizMode
+    quizMode,
+    lessonTitle
 }) => {
     if (!isOpen) return null;
 
-    const [displayScore, setDisplayScore] = React.useState(0);
+    const [displayScore, setDisplayScore] = useState(0);
+    const [buddyRecommendation, setBuddyRecommendation] = useState<string | null>(null);
+    const [isLoadingBuddy, setIsLoadingBuddy] = useState(false);
 
     React.useEffect(() => {
         if (isOpen) {
@@ -49,6 +54,30 @@ const QuizResultsModal: React.FC<QuizResultsModalProps> = ({
     }, [isOpen, result.score]);
 
     const isPassing = result.passed;
+
+    useEffect(() => {
+        const fetchRecommendation = async () => {
+            if (isOpen && !isPassing && result.wrongAnswers && result.wrongAnswers.length > 0 && lessonTitle) {
+                setIsLoadingBuddy(true);
+                try {
+                    const rec = await aiService.analyzeQuizPerformance(lessonTitle, result.wrongAnswers);
+                    setBuddyRecommendation(rec);
+                } catch (err) {
+                    console.error("Erro ao buscar recomendacao do buddy:", err);
+                } finally {
+                    setIsLoadingBuddy(false);
+                }
+            } else {
+                setBuddyRecommendation(null);
+            }
+        };
+        fetchRecommendation();
+    }, [isOpen, isPassing, result.wrongAnswers, lessonTitle]);
+
+    // Função simples para renderizar markdown básico (negrito)
+    const renderMarkdown = (text: string) => {
+        return { __html: text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>') };
+    };
 
     return (
         <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-300 p-4">
@@ -174,6 +203,38 @@ const QuizResultsModal: React.FC<QuizResultsModalProps> = ({
                             )}
                         </p>
                     </div>
+
+                    {/* Buddy Recommendations */}
+                    {!isPassing && (isLoadingBuddy || buddyRecommendation) && (
+                        <div className="mb-5 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl p-4 border border-indigo-200 dark:border-indigo-800/50 relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 rounded-bl-full -mr-4 -mt-4"></div>
+                            
+                            <div className="flex items-start gap-3 relative z-10">
+                                <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-800 flex items-center justify-center flex-shrink-0 border-2 border-white dark:border-slate-800 shadow-sm">
+                                    <span className="text-xl">🤖</span>
+                                </div>
+                                <div className="flex-1">
+                                    <h4 className="text-sm font-black text-indigo-900 dark:text-indigo-300 mb-1 flex items-center gap-2">
+                                        Buddy recomenda:
+                                        {isLoadingBuddy && (
+                                            <span className="flex gap-0.5">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                                            </span>
+                                        )}
+                                    </h4>
+                                    
+                                    {!isLoadingBuddy && buddyRecommendation && (
+                                        <div 
+                                            className="text-sm text-indigo-800 dark:text-indigo-200/90 leading-relaxed"
+                                            dangerouslySetInnerHTML={renderMarkdown(buddyRecommendation)}
+                                        />
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Actions */}
                     <div className="flex gap-3">

@@ -5,6 +5,7 @@ import DashboardHeader from '@/components/dashboard/DashboardHeader';
 import CourseCard from '@/components/features/dashboard/CourseCard';
 import DashboardSkeleton from '@/components/skeletons/DashboardSkeleton';
 import RecentActivity from '@/components/features/dashboard/RecentActivity';
+import LazyImage from '@/components/ui/LazyImage';
 import { useCourse } from '@/contexts/CourseContext';
 
 interface StudentDashboardProps {
@@ -179,7 +180,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                       >
                         <div className="w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 bg-slate-800 relative group-hover:scale-105 transition-transform duration-300">
                           {course.imageUrl ? (
-                            <img src={course.imageUrl} alt="" loading="lazy" className="w-full h-full object-cover opacity-90 group-hover:opacity-100" />
+                            <LazyImage src={course.imageUrl} alt={course.title} className="w-full h-full object-cover opacity-90 group-hover:opacity-100" aspectRatio="1/1" />
                           ) : (
                             <div className="w-full h-full bg-gradient-to-br from-indigo-500/20 to-cyan-500/20 flex items-center justify-center text-white/50">
                               <i className="fas fa-book-open text-xs"></i>
@@ -232,9 +233,9 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                         className="bg-white dark:bg-black/20 backdrop-blur-md rounded-2xl p-6 border border-slate-200 dark:border-white/5 shadow-sm hover:border-indigo-500/30 cursor-pointer transition-all group flex flex-col h-full relative"
                       >
                         <div className="flex items-start justify-between mb-4">
-                          <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl bg-slate-100 dark:bg-white/5 text-slate-500">
+                          <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl bg-slate-100 dark:bg-white/5 text-slate-500 overflow-hidden">
                             {course.imageUrl ? (
-                              <img src={course.imageUrl} alt="" className="w-full h-full object-cover rounded-2xl" />
+                              <LazyImage src={course.imageUrl} alt={course.title} className="w-full h-full object-cover" aspectRatio="1/1" />
                             ) : (<i className="fas fa-book-open"></i>)}
                           </div>
                         </div>

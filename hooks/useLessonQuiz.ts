@@ -3,7 +3,7 @@ import { Quiz, QuizAttemptResult } from '../domain/quiz-entities';
 import { QuizQuestion } from '../domain/quiz-entities';
 import { Course, Lesson, User } from '../domain/entities';
 import { toast } from 'sonner';
-import { courseRepository, questionBankRepository } from '../services/Dependencies';
+import { courseRepository, questionBankRepository, quizRepository } from '../services/Dependencies';
 
 interface UseLessonQuizProps {
     lesson: Lesson;
@@ -54,7 +54,7 @@ export const useLessonQuiz = ({
     useEffect(() => {
         async function loadQuiz() {
             try {
-                const loadedQuiz = await courseRepository.getQuizByLessonId(lesson.id);
+                const loadedQuiz = await quizRepository.getQuizByLessonId(lesson.id);
                 setQuiz(loadedQuiz);
             } catch (error) {
                 console.error('Erro ao carregar quiz:', error);
@@ -74,7 +74,7 @@ export const useLessonQuiz = ({
         try {
             // 🔍 Only Students persist quiz attempts
             if (user.role === 'STUDENT') {
-                await courseRepository.submitQuizAttempt(
+                await quizRepository.submitQuizAttempt(
                     user.id,
                     quiz.id,
                     answers
@@ -183,7 +183,7 @@ export const useLessonQuiz = ({
                 // Check for previous failed attempt to exclude questions
                 let excludeIds: string[] = [];
                 try {
-                    const lastAttempt = await courseRepository.getLatestQuizAttempt(user.id, quiz.id);
+                    const lastAttempt = await quizRepository.getLatestQuizAttempt(user.id, quiz.id);
                     if (lastAttempt && !lastAttempt.passed && lastAttempt.answers) {
                         excludeIds = Object.keys(lastAttempt.answers);
                         console.log('Excluding questions from previous failed attempt:', excludeIds);

@@ -1,20 +1,33 @@
 # Project State
 
 ## Summary
-Projeto inicializado no modo GSD. Base de código mapeada e metas de refatoração definidas.
+Projeto inicializado no modo GSD. Fases 1, 2 e 3 concluídas com sucesso.
 
 ## Milestone 1: Refatoração e Estabilização
-**Progress: 0%**
+**Progress: 100% (CONCLUÍDO)**
 
-### Phase 1: Arquitetura e Roteamento
-- [ ] Decompor `App.tsx` (Status: Pending)
-- [ ] Refatorar Router (Status: Pending)
+### Phase 1-3: Estabilização e Performance
+- [x] Concluídas e Validadas.
 
-## Active Context
-- **Last Command**: `/gsd-new-project`
-- **Current Objective**: Preparar o sistema para refatoração.
-- **Identified Blockers**: Nenhum imediato.
+## Milestone 2: Engajamento e Gamificação
+**Progress: 25%**
+
+### Phase 4: Gamificação Avançada
+- [x] Leaderboard (Global/Semanal/Mensal) (Status: Concluído)
+- [x] Achievements via Backend Triggers (Status: Concluído)
+- [x] Full-screen Overlays (Level Up/Awards) (Status: Concluído)
+
+## Status Atual
+- **Marcos Concluídos**: 1 (Milestone 1)
+- **Fase Atual**: Fase 4 (Gamificação Avançada) - **CONCLUÍDA**
+- **Próximo Passo**: Monitoramento de UX e refinamento de notificações.
+
+## Últimas Atividades
+- [x] Implementação de Leaderboard com filtros temporais.
+- [x] Criação de GamificationOverlayManager para eventos em tempo real.
+- [x] Design de animações premium para Level Up e Conquistas (Framer Motion).
+- [x] Migração SQL para automação de regras de gamificação no Supabase.
 
 ## Metrics
-- **Large Files**: 3 identified (`App.tsx`, `SupabaseCourseRepository`, `SupabaseAdminRepository`).
-- **Dependencies**: 40+ packages.
+- **Engagement**: Sistema de recompensas instantâneas ativo.
+- **Data Integrity**: Gamificação processada via Triggers (Server-side).

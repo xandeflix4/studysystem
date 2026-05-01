@@ -1,4 +1,4 @@
-import { courseRepository, questionBankRepository } from '../services/Dependencies';
+import { courseRepository, questionBankRepository, quizRepository } from '../services/Dependencies';
 import React, { useState, useRef } from 'react';
 import { Quiz, QuizQuestion, QuizOption } from '../domain/quiz-entities';
 import { LessonResource } from '../domain/entities';
@@ -102,9 +102,7 @@ const QuizEditor: React.FC<QuizEditorProps> = ({ lessonId, existingQuiz, onSave,
 
         setIsLoadingReports(true);
         try {
-            const repo = courseRepository;
-
-            const fetchedReports = await repo.getQuizReports(existingQuiz.id);
+            const fetchedReports = await quizRepository.getQuizReports(existingQuiz.id);
             setReports(fetchedReports);
             setShowReports(true);
         } catch (error) {

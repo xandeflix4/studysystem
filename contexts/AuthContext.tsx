@@ -1,11 +1,9 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User } from '../domain/entities';
 import { IUserSession } from '../domain/auth';
+import { courseService, supabaseClient as supabase } from '../services/Dependencies';
 import { AuthService } from '../services/AuthService';
 import { SupabaseAuthRepository } from '../repositories/SupabaseAuthRepository';
-import { CourseService } from '../services/CourseService';
-import { SupabaseCourseRepository } from '../repositories/SupabaseCourseRepository';
-import { createSupabaseClient } from '../services/supabaseClient';
 import { useBuddyStore } from '../stores/useBuddyStore';
 import { clearBrowserCache } from '../utils/cacheManager';
 
@@ -26,10 +24,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
-    // Initialize Services
-    // NOTE: In a real app, these commonly come from a DI container or are instantiated outside
-    const authService = new AuthService(new SupabaseAuthRepository());
-    const courseService = new CourseService(new SupabaseCourseRepository(createSupabaseClient()));
+    // Services are imported from Dependencies.ts
+    const authService = React.useMemo(() => new AuthService(new SupabaseAuthRepository()), []);
 
     const refreshSession = async () => {
         try {

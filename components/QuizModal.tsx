@@ -1,4 +1,4 @@
-import { courseRepository, supabaseClient as supabase } from '../services/Dependencies';
+import { courseRepository, quizRepository, supabaseClient as supabase } from '../services/Dependencies';
 import React, { useState } from 'react';
 import { Quiz, QuizQuestion } from '../domain/quiz-entities';
 import { toast } from 'sonner';
@@ -92,12 +92,10 @@ const QuizModal: React.FC<QuizModalProps> = ({ quiz, isOpen, onClose, onSubmit, 
 
         setIsReporting(true);
         try {
-            const repo = courseRepository;
             const { data: { user: currentUser } } = await supabase.auth.getUser();
-
             if (!currentUser) throw new Error('Usuário não autenticado');
 
-            await repo.createQuizReport({
+            await quizRepository.createQuizReport({
                 quizId: quiz.id,
                 questionId: qId,
                 userId: currentUser.id,

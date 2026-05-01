@@ -1,12 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Course, Lesson, Module } from '../domain/entities';
-import { CourseService } from '../services/CourseService';
-import { SupabaseCourseRepository } from '../repositories/SupabaseCourseRepository';
-import { createSupabaseClient } from '../services/supabaseClient';
 import { useAuth } from './AuthContext';
 import { useCoursesList, useCourseDetails } from '../hooks/useCourses';
-import { adminService } from '../services/Dependencies';
+import { adminService, courseService } from '../services/Dependencies';
+import { CourseService } from '../services/CourseService';
 
 interface CourseContextType {
     availableCourses: any[]; // CourseSummary[] | Course[] - relaxed for transition
@@ -19,12 +17,12 @@ interface CourseContextType {
     selectCourse: (courseId: string) => void;
     selectModule: (moduleId: string) => void;
     selectLesson: (lessonId: string) => void;
-
     updateProgress: (watchedSeconds: number, lastBlockId?: string) => Promise<void>;
     markBlockAsRead: (blockId: string) => void;
     markVideoWatched: (videoUrl: string) => void;
     markAudioListened: (blockId: string) => void;
     enrollInCourse: (courseId: string) => Promise<void>;
+    prefetchLesson: (lessonId: string) => void;
 
     courseService: CourseService;
 }
@@ -38,9 +36,7 @@ export const CourseProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const [activeModule, setActiveModule] = useState<Module | null>(null);
     const [activeLesson, setActiveLesson] = useState<Lesson | null>(null);
 
-    // Initialize Service (Memoized)
-    // We instantiate it once. Since repository is stateless, this is fine.
-    const courseService = React.useMemo(() => new CourseService(new SupabaseCourseRepository(createSupabaseClient())), []);
+    // Service is imported from Dependencies.ts
     // 1. Fetch Lists (Summary)
     const coursesListQuery = useCoursesList(courseService, user?.id, !!user);
     const availableCourses = (coursesListQuery.data || []) as unknown as Course[];
@@ -142,6 +138,51 @@ export const CourseProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
     };
 
+    const prefetchLesson = async (lessonId: string) => {
+        if (!activeCourse || !user?.id) return;
+
+        // Find the lesson in structure
+        let foundLesson: Lesson | null = null;
+        for (const mod of activeCourse.modules) {
+            const l = mod.lessons.find(l => l.id === lessonId);
+            if (l) {
+                foundLesson = l;
+                break;
+            }
+        }
+
+        if (foundLesson && !foundLesson.isLoaded) {
+            console.log(`🚀 Prefetching lesson: ${lessonId}`);
+            try {
+                const fullLesson = await courseService.loadLessonContent(lessonId, user.id);
+                if (fullLesson) {
+                    const newModules = activeCourse.modules.map(m => {
+                        const lessonInModule = m.lessons.find(l => l.id === lessonId);
+                        if (lessonInModule) {
+                            const newLessons = m.lessons.map(l => l.id === lessonId ? fullLesson : l);
+                            return new Module(m.id, m.title, newLessons);
+                        }
+                        return m;
+                    });
+
+                    const newCourse = new Course(
+                        activeCourse.id,
+                        activeCourse.title,
+                        activeCourse.description,
+                        activeCourse.imageUrl,
+                        activeCourse.color,
+                        activeCourse.colorLegend,
+                        newModules
+                    );
+
+                    queryClient.setQueryData(['course', activeCourse.id, user.id], newCourse);
+                }
+            } catch (err) {
+                console.error("Prefetch failed", err);
+            }
+        }
+    };
+
     const updateProgress = async (watchedSeconds: number, lastBlockId?: string) => {
         if (!activeLesson || !activeCourse || !user) return;
 
@@ -155,7 +196,12 @@ export const CourseProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setActiveLesson(activeLesson.clone());
 
         // Server update — pass the CORRECT becameCompleted flag
-        await courseService.updateUserProgress(user, activeLesson, activeCourse, becameCompleted, lastBlockId);
+        const result = await courseService.updateUserProgress(user, activeLesson, activeCourse, becameCompleted, lastBlockId);
+
+        // Handle Level Up Animation
+        if (result.levelUp) {
+            useGamificationStore.getState().showLevelUp(result.newLevel, result.unlockedAchievements);
+        }
 
         // If it was just completed, refresh course data in cache
         if (becameCompleted) {
@@ -172,7 +218,13 @@ export const CourseProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             const becameCompleted = lesson.updateProgress(lesson.watchedSeconds);
             setActiveLesson(lesson.clone());
             if (becameCompleted) {
-                await courseService.updateUserProgress(user, lesson, activeCourse, true);
+                const result = await courseService.updateUserProgress(user, lesson, activeCourse, true);
+                
+                // Handle Level Up Animation
+                if (result.levelUp) {
+                    useGamificationStore.getState().showLevelUp(result.newLevel, result.unlockedAchievements);
+                }
+
                 queryClient.invalidateQueries({ queryKey: ['course', activeCourse.id, user.id] });
             }
         }
@@ -205,6 +257,8 @@ export const CourseProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const enrollInCourse = async (courseId: string) => {
         if (!user) return;
         await courseService.enrollUserInCourse(user.id, courseId);
+        // Invalidate course list to show the new course in "My Courses"
+        queryClient.invalidateQueries({ queryKey: ['courses', 'list', user.id] });
     };
 
     const value = {
@@ -222,6 +276,7 @@ export const CourseProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         markVideoWatched,
         markAudioListened,
         enrollInCourse,
+        prefetchLesson,
         courseService
     };
 

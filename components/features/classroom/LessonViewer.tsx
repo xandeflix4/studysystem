@@ -1,4 +1,4 @@
-import { courseRepository } from '@/services/Dependencies';
+import { courseRepository, quizRepository } from '@/services/Dependencies';
 // Fixed syntax
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -12,6 +12,7 @@ import NotesPanelPrototype from '@/components/NotesPanelPrototype';
 // import GeminiBuddy from '@/components/GeminiBuddy'; // Removed: Uses global now
 import QuizOptionsModal from '@/components/QuizOptionsModal';
 import QuizModal from '@/components/QuizModal';
+import { useCourse } from '@/contexts/CourseContext';
 
 import QuizResultsModal from '@/components/QuizResultsModal';
 import { QuizAttemptResult } from '@/domain/quiz-entities';
@@ -78,6 +79,23 @@ const LessonViewer: React.FC<LessonViewerProps> = ({
         contentTheme,
         setContentTheme
     } = useLessonStore();
+    
+    // Initialize previous and next lesson variables
+    let previousLesson: Lesson | null = null;
+    let nextLesson: Lesson | null = null;
+
+    if (course?.modules) {
+        for (const module of course.modules) {
+            const index = module.lessons?.findIndex(l => l.id === lesson.id);
+            if (index !== -1 && index !== undefined) {
+                if (index > 0) previousLesson = module.lessons[index - 1];
+                if (index < module.lessons.length - 1) nextLesson = module.lessons[index + 1];
+                break;
+            }
+        }
+    }
+
+    const { prefetchLesson } = useCourse();
 
     // Custom Hooks
     // Audio Player hook moved down to access handleProgressUpdateInternal
@@ -157,7 +175,10 @@ const LessonViewer: React.FC<LessonViewerProps> = ({
     // Supabase Egress Optimizer (Thumbnail Compress)
     const getOptimizedUrl = (url?: string, width: number = 400) => {
         if (!url) return '';
-        if (url.includes('supabase.co/storage')) return `${url}?width=${width}&quality=80`;
+        if (url.includes('supabase.co/storage/v1/object/public')) {
+            const separator = url.includes('?') ? '&' : '?';
+            return `${url}${separator}width=${width}&quality=80&format=webp`;
+        }
         return url;
     };
 
@@ -205,8 +226,7 @@ const LessonViewer: React.FC<LessonViewerProps> = ({
 
             // Verificar se já passou (opcional, já que o hook poderia prover isso)
             const checkCompletion = async () => {
-                const courseRepo = courseRepository;
-                const attempt = await courseRepo.getLatestQuizAttempt(user.id, quiz.id);
+                const attempt = await quizRepository.getLatestQuizAttempt(user.id, quiz.id);
                 if (attempt?.passed) {
                     lesson.setQuizPassed(true);
                 }
@@ -225,6 +245,11 @@ const LessonViewer: React.FC<LessonViewerProps> = ({
         const progressPercent = lesson.calculateProgressPercentage();
         const isCompletingNow = progressPercent >= 90;
 
+        // 🚀 Prefetch next lesson when reaching 70% of current
+        if (progressPercent >= 70 && nextLesson && !nextLesson.isLoaded) {
+            prefetchLesson(nextLesson.id);
+        }
+
         if (isCompletingNow && quiz && !lesson.quizPassed) {
             await onProgressUpdate(watchedSeconds, lastBlockId);
 
@@ -234,7 +259,7 @@ const LessonViewer: React.FC<LessonViewerProps> = ({
         } else {
             await onProgressUpdate(watchedSeconds, lastBlockId);
         }
-    }, [lesson, quiz, showQuizModal, quizResult, onProgressUpdate]);
+    }, [lesson, quiz, showQuizModal, quizResult, onProgressUpdate, nextLesson, prefetchLesson]);
 
     // --- IntersectionObserver for Text Reading Detection ---
     useEffect(() => {
@@ -511,21 +536,6 @@ const LessonViewer: React.FC<LessonViewerProps> = ({
     // Utility function for image optimization
 
 
-
-    // Initialize previous and next lesson variables
-    let previousLesson: Lesson | null = null;
-    let nextLesson: Lesson | null = null;
-
-    if (course?.modules) {
-        for (const module of course.modules) {
-            const index = module.lessons?.findIndex(l => l.id === lesson.id);
-            if (index !== -1 && index !== undefined) {
-                if (index > 0) previousLesson = module.lessons[index - 1];
-                if (index < module.lessons.length - 1) nextLesson = module.lessons[index + 1];
-                break;
-            }
-        }
-    }
 
     // Determine which video URL to use
     const hasMultipleVideos = lesson.videoUrls && lesson.videoUrls.length > 1;
@@ -1598,6 +1608,7 @@ const LessonViewer: React.FC<LessonViewerProps> = ({
                         isOpen={!!quizResult}
                         onClose={() => setQuizResult(null)}
                         quizMode={quizMode}
+                        lessonTitle={lesson.title}
                         onRetry={() => {
                             setQuizResult(null);
                             if (quizMode === 'practice') {

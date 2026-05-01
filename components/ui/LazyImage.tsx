@@ -71,8 +71,21 @@ const LazyImage: React.FC<LazyImageProps> = ({
         onError?.();
     }, [onError]);
 
-    // Fallback placeholder
-    const defaultPlaceholder = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 300'%3E%3Crect fill='%231e293b' width='400' height='300'/%3E%3C/svg%3E`;
+    // Supabase Image Optimization
+    const getOptimizedSrc = (originalSrc: string) => {
+        if (!originalSrc.includes('supabase.co/storage/v1/object/public')) return originalSrc;
+        
+        const params = new URLSearchParams();
+        // Default optimization for thumbnails if no dimensions provided
+        params.append('width', '600');
+        params.append('quality', '80');
+        params.append('format', 'webp');
+        
+        const separator = originalSrc.includes('?') ? '&' : '?';
+        return `${originalSrc}${separator}${params.toString()}`;
+    };
+
+    const optimizedSrc = getOptimizedSrc(src);
 
     return (
         <div
@@ -89,7 +102,7 @@ const LazyImage: React.FC<LazyImageProps> = ({
             {isInView && !hasError && (
                 <img
                     ref={imgRef}
-                    src={src}
+                    src={optimizedSrc}
                     alt={alt}
                     loading="lazy"
                     onLoad={handleLoad}

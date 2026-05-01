@@ -176,6 +176,33 @@ serve(async (req: Request) => {
 
         let responseText = '';
 
+        // --- RAG LOGIC (Semantic Search) ---
+        let ragContext = '';
+        const userQuery = messages.filter(m => m.role === 'user').pop()?.text || '';
+
+        if (userQuery && resolvedApiKey && aiProvider === 'google') {
+            try {
+                const ai = new GoogleGenAI({ apiKey: resolvedApiKey });
+                const embedModel = ai.getGenerativeModel({ model: "text-embedding-004" });
+                const embResult = await embedModel.embedContent(userQuery);
+                const queryEmbedding = embResult.embedding.values;
+
+                const { data: matchedDocs, error: matchError } = await supabaseClient.rpc('match_lesson_content', {
+                    query_embedding: queryEmbedding,
+                    match_threshold: 0.5,
+                    match_count: 3
+                });
+
+                if (!matchError && matchedDocs && matchedDocs.length > 0) {
+                    ragContext = matchedDocs.map((doc: any) => 
+                        `[CONTEÚDO RELACIONADO - Aula: ${doc.metadata?.title || 'Desconhecida'}]\n${doc.content}`
+                    ).join('\n\n');
+                }
+            } catch (ragErr) {
+                console.error('RAG Search failed:', ragErr);
+            }
+        }
+
         // HELPER FUNCTIONS
         const callGemini = async (apiKey: string, geminiModel: string, msgs: AskAiRequestBody['messages'], systemText: string) => {
             const rawUserContent = msgs.filter((m) => m.role !== 'system').map((m) => {
@@ -279,7 +306,9 @@ Contexto fornecido pelo cliente: `;
             const clientSystemText = clientSystemMsg ? (clientSystemMsg.text || clientSystemMsg.content || '') : '';
             
             // Combine with overriding backend precedence
-            const systemText = HARDENED_SYSTEM_PROMPT + clientSystemText;
+            const systemText = HARDENED_SYSTEM_PROMPT + 
+                             (ragContext ? `\n\nCONTEÚDO DAS AULAS (RAG):\n${ragContext}\n\n` : '') + 
+                             clientSystemText;
 
             // Remove any client 'system' overrides from the message chain to prevent them overriding our prepended rules
             const filteredMessages = messages.filter((m) => m.role !== 'system');

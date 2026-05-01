@@ -4,6 +4,7 @@ module.exports = {
 		'./index.html',
 		'./index.tsx',
 		'./App.tsx',
+		'./src/**/*.{ts,tsx}',
 		'./components/**/*.{ts,tsx}',
 		'./domain/**/*.{ts,tsx}',
 		'./repositories/**/*.{ts,tsx}',

@@ -1,24 +1,34 @@
 import { ICourseRepository } from '../repositories/ICourseRepository';
+import { IUserProgressRepository } from '../repositories/IUserProgressRepository';
+import { IGamificationRepository } from '../repositories/IGamificationRepository';
+import { IQuizRepository } from '../repositories/IQuizRepository';
+import { IUserProfileRepository } from '../repositories/IUserProfileRepository';
 import { Achievement, Course, Lesson, User } from '../domain/entities';
 
+export interface GamificationResult {
+  unlockedAchievements: Achievement[];
+  levelUp: boolean;
+  newLevel: number;
+  xpGained: number;
+}
+
 export class CourseService {
-  constructor(private courseRepository: ICourseRepository) { }
+  constructor(
+    private courseRepository: ICourseRepository,
+    private userProgressRepository: IUserProgressRepository,
+    private gamificationRepository: IGamificationRepository,
+    private quizRepository: IQuizRepository,
+    private userProfileRepository: IUserProfileRepository
+  ) { }
 
   public async loadCourseDetails(id: string, userId?: string): Promise<Course> {
-    // Mantendo endpoint original, mas UI deve migrar para loadCourseStructure + loadLessonContent
     return this.courseRepository.getCourseById(id, userId);
   }
 
-  /**
-   * Carrega apenas estrutura (rápido)
-   */
   public async loadCourseStructure(id: string, userId?: string): Promise<Course> {
     return this.courseRepository.getCourseStructure(id, userId);
   }
 
-  /**
-   * Carrega conteúdo da aula (sob demanda)
-   */
   public async loadLessonContent(lessonId: string, userId?: string): Promise<Lesson | null> {
     return this.courseRepository.getLessonById(lessonId, userId);
   }
@@ -29,15 +39,10 @@ export class CourseService {
     course: Course,
     becameCompleted: boolean,
     lastBlockId?: string
-  ): Promise<Achievement[]> {
-    // 🔍 Only Students can perform courses and earn points
-    if (user.role !== 'STUDENT') {
-      console.log(`[GAMIFICATION] Skipping update for role: ${user.role}`);
-      return [];
-    }
+  ): Promise<GamificationResult> {
+    if (user.role !== 'STUDENT') return { unlockedAchievements: [], levelUp: false, newLevel: user.level, xpGained: 0 };
 
-    // 1. Persist Progress (Core Responsibility)
-    await this.courseRepository.updateLessonProgress(
+    await this.userProgressRepository.updateLessonProgress(
       user.id,
       lesson.id,
       lesson.watchedSeconds,
@@ -46,21 +51,18 @@ export class CourseService {
       lesson.durationSeconds
     );
 
-    // If lesson didn't just become complete, no rewards to process.
-    if (!becameCompleted) return [];
+    if (!becameCompleted) return { unlockedAchievements: [], levelUp: false, newLevel: user.level, xpGained: 0 };
 
-    // 2. Validate Ruls for Rewards (Quiz, etc)
     const canAward = await this.shouldAwardGamification(user, lesson);
-    if (!canAward) return [];
+    if (!canAward) return { unlockedAchievements: [], levelUp: false, newLevel: user.level, xpGained: 0 };
 
-    // 3. Process Rewards (Side Effects)
     return this.processGamificationRewards(user, lesson, course);
   }
 
   private async shouldAwardGamification(user: User, lesson: Lesson): Promise<boolean> {
-    const quiz = await this.courseRepository.getQuizByLessonId(lesson.id);
+    const quiz = await this.quizRepository.getQuizByLessonId(lesson.id);
     if (quiz) {
-      const latestAttempt = await this.courseRepository.getLatestQuizAttempt(user.id, quiz.id);
+      const latestAttempt = await this.quizRepository.getLatestQuizAttempt(user.id, quiz.id);
       if (!latestAttempt || !latestAttempt.passed) {
         return false;
       }
@@ -69,47 +71,62 @@ export class CourseService {
     return true;
   }
 
-  private async processGamificationRewards(user: User, lesson: Lesson, course: Course): Promise<Achievement[]> {
+  private async processGamificationRewards(user: User, lesson: Lesson, course: Course): Promise<GamificationResult> {
     const unlocked: Achievement[] = [];
+    let totalXpGained = 0;
+    let finalLevelUp = false;
+    let finalLevel = user.level;
 
-    // Lesson XP (Local + RPC Update handled by repo/rpc implicitly)
-    // We update local state just for immediate UI feedback before refresh
-    user.addXp(150);
-
-    // EXPLICIT LOGGING: Ensure history record is created for this XP gain
-    await this.courseRepository.logXpChange(user.id, 150, 'LESSON_COMPLETE', `Aula concluída: ${lesson.title}`);
+    // 1. XP por Aula (150 XP)
+    const lessonResult = await this.gamificationRepository.addXp(user.id, 150, 'LESSON_COMPLETE', `Aula concluída: ${lesson.title}`);
+    if (lessonResult.success) {
+      totalXpGained += 150;
+      if (lessonResult.levelUp) finalLevelUp = true;
+      finalLevel = lessonResult.newLevel;
+      user.addXp(150); // Sincroniza objeto local
+    }
 
     const lessonAch = user.checkAndAddAchievements('LESSON');
     if (lessonAch) unlocked.push(lessonAch);
 
+    // 2. XP por Módulo (500 XP)
     const parentModule = course.modules.find(m => m.lessons.some(l => l.id === lesson.id));
     if (parentModule && parentModule.isFullyCompleted()) {
-      user.addXp(500);
-      // This call to addXp calls 'add_secure_xp' RPC which handles logging, but purely for consistency we rely on it.
-      // If needed we could also log explicitly, but let's trust addXp RPC for now or double check it.
-      // Given addXp returns a promise, we are good.
-      await this.courseRepository.addXp(user.id, 500, 'MODULE_COMPLETE', `Módulo Completo: ${parentModule.title}`);
+      const moduleResult = await this.gamificationRepository.addXp(user.id, 500, 'MODULE_COMPLETE', `Módulo Completo: ${parentModule.title}`);
+      if (moduleResult.success) {
+        totalXpGained += 500;
+        if (moduleResult.levelUp) finalLevelUp = true;
+        finalLevel = moduleResult.newLevel;
+        user.addXp(500); // Sincroniza objeto local
+      }
 
       const moduleAch = user.checkAndAddAchievements('MODULE');
       if (moduleAch) unlocked.push(moduleAch);
     }
 
+    // 3. Conquistas de Curso
     if (course.isFullyCompleted()) {
       const courseAch = user.checkAndAddAchievements('COURSE');
       if (courseAch) unlocked.push(courseAch);
     }
 
-    // Badge Checks
+    // 4. Milestones de XP e Nível
     const xpAch = this.checkXpMilestones(user);
     if (xpAch.length) unlocked.push(...xpAch);
 
     const levelAch = user.checkAndAddAchievements('LEVEL');
     if (levelAch) unlocked.push(levelAch);
 
-    // Persist Achievements
-    await this.courseRepository.saveAchievements(user.id, user.achievements);
+    if (unlocked.length > 0) {
+      await this.gamificationRepository.saveAchievements(user.id, user.achievements);
+    }
 
-    return unlocked;
+    return {
+      unlockedAchievements: unlocked,
+      levelUp: finalLevelUp,
+      newLevel: finalLevel,
+      xpGained: totalXpGained
+    };
   }
 
   private checkXpMilestones(user: User): Achievement[] {
@@ -122,25 +139,12 @@ export class CourseService {
     return unlocked;
   }
 
-  async getCoursesSummary(userId: string): Promise<{
-    id: string;
-    title: string;
-    description: string;
-    imageUrl: string | null;
-    color?: string | null;
-    color_legend?: string | null;
-    modules: {
-      id: string;
-      title?: string | null;
-      position?: number | null;
-      lessons: { id: string; title?: string | null; position?: number | null }[];
-    }[];
-  }[]> {
+  async getCoursesSummary(userId: string): Promise<any[]> {
     return this.courseRepository.getCoursesSummary(userId);
   }
 
   async getCourseProgressSummary(userId: string) {
-    return this.courseRepository.getCourseProgressSummary(userId);
+    return this.userProgressRepository.getCourseProgressSummary(userId);
   }
 
   async getCourseById(courseId: string, userId?: string): Promise<Course> {
@@ -148,64 +152,42 @@ export class CourseService {
   }
 
   public async fetchUserProfile(userId: string): Promise<User> {
-    return this.courseRepository.getUserById(userId);
+    return this.userProfileRepository.getUserById(userId);
   }
 
-  /**
-   * Busca apenas cursos inscritos
-   */
   public async fetchEnrolledCourses(userId: string): Promise<Course[]> {
-    // This already uses getCourseStructure internally in Repo, which is optimized
     return this.courseRepository.getEnrolledCourses(userId);
   }
 
-  /**
-   * Inscreve usuário em um curso
-   */
   public async enrollUserInCourse(userId: string, courseId: string): Promise<void> {
     await this.courseRepository.enrollInCourse(userId, courseId);
   }
 
-  /**
-   * Cancela inscrição
-   */
   public async unenrollUser(userId: string, courseId: string): Promise<void> {
     await this.courseRepository.unenrollFromCourse(userId, courseId);
   }
 
-  /**
-   * Verifica inscrição
-   */
   public async checkEnrollment(userId: string, courseId: string): Promise<boolean> {
     return this.courseRepository.isEnrolled(userId, courseId);
   }
 
-  /**
-   * Marca um bloco de texto como lido pelo aluno
-   */
   public async markTextBlockAsRead(userId: string, lessonId: string, blockId: string): Promise<void> {
-    return this.courseRepository.markTextBlockAsRead(userId, lessonId, blockId);
+    return this.userProgressRepository.markTextBlockAsRead(userId, lessonId, blockId);
   }
 
-  /**
-   * Busca histórico de XP dos últimos 7 dias
-   */
   public async getWeeklyXpHistory(userId: string): Promise<{ date: string; xp: number }[]> {
-    return this.courseRepository.getWeeklyXpHistory(userId);
+    return this.gamificationRepository.getWeeklyXpHistory(userId);
   }
 
-  /**
-   * Dashboard stats via optimized RPC
-   */
   public async getDashboardStats(userId: string) {
-    return this.courseRepository.getDashboardStats(userId);
+    return this.gamificationRepository.getDashboardStats(userId);
   }
 
   public async updateProfileInfo(userId: string, name: string): Promise<void> {
-    return this.courseRepository.updateProfileInfo(userId, name);
+    return this.userProfileRepository.updateProfileInfo(userId, name);
   }
 
   public async uploadAvatar(userId: string, file: File): Promise<string> {
-    return this.courseRepository.uploadAvatar(userId, file);
+    return this.userProfileRepository.uploadAvatar(userId, file);
   }
 }

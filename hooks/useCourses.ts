@@ -60,7 +60,8 @@ export const useCoursesList = (service: CourseService, userId: string | undefine
             });
         },
         enabled: enabled && !!userId,
-        staleTime: 1000 * 60 * 10, // 10 minutes
+        staleTime: 1000 * 60 * 15, // 15 minutes (aggressively cached)
+        gcTime: 1000 * 60 * 60 * 2, // 2 hours
     });
 };
 
@@ -74,6 +75,7 @@ export const useCourseDetails = (service: CourseService, courseId: string | null
             return service.loadCourseStructure(courseId, userId);
         },
         enabled: !!courseId && !!userId,
-        staleTime: 1000 * 60 * 30, // 30 minutes
+        staleTime: 1000 * 60 * 60, // 1 hour (course structure rarely changes)
+        gcTime: 1000 * 60 * 60 * 4, // 4 hours
     });
 };
